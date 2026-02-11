@@ -45,7 +45,7 @@ if uploaded_file:
 
 df = st.session_state.get("df")
 if df is None:
-    st.info("좌측에서 CSV 파일을 업로드해주세요.")
+    st.info("좌측 메뉴에서 CSV 파일을 업로드해주세요.")
     st.stop()
 
 # =====================
@@ -53,22 +53,43 @@ if df is None:
 # =====================
 st.sidebar.header("🔎 필터")
 
-# ▶ 기간 필터 (연도 선택 제거)
 min_date = df["date"].min()
 max_date = df["date"].max()
 
-start_date, end_date = st.sidebar.date_input(
+# ▶ 최초 1회만 기본값 세팅
+if "date_range" not in st.session_state:
+    st.session_state.date_range = (min_date, max_date)
+
+# ▶ date_input (반드시 key 사용)
+date_range = st.sidebar.date_input(
     "📆 분석 기간 선택",
-    value=(min_date, max_date),
+    value=st.session_state.date_range,
     min_value=min_date,
-    max_value=max_date
+    max_value=max_date,
+    key="date_picker"
 )
 
+# ▶ 단일 선택 방어
+if isinstance(date_range, tuple) and len(date_range) == 2:
+    start_date, end_date = date_range
+else:
+    start_date, end_date = min_date, max_date
+
+# ▶ 기간 역전 방어
+if start_date > end_date:
+    st.warning("⚠ 시작일이 종료일보다 클 수 없습니다.")
+    st.stop()
+
+# ▶ session_state 업데이트
+st.session_state.date_range = (start_date, end_date)
+
+# ▶ 필터 적용
 df_expense = df[
     (df["is_expense"]) &
     (df["date"] >= pd.to_datetime(start_date)) &
     (df["date"] <= pd.to_datetime(end_date))
 ].copy()
+
 
 # ▶ 카테고리 태그 필터
 st.sidebar.header("🏷 카테고리")
