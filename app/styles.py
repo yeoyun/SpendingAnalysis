@@ -9,8 +9,11 @@ PRIMARY_COLOR = "#F00176"
 GRAY_100 = "#F7F8F9"
 GRAY_300 = "#D1D5DB"
 GRAY_500 = "#9CA3AF"
-GRAY_700 = "#72787F"
+GRAY_600 = "#72787F"
+GRAY_700 = "#454753"
+GRAY_800 = "#26282B"
 
+BLACK = "#0B1215"
 
 def gray_gradient(t: float) -> str:
     """

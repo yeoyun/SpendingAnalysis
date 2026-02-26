@@ -36,7 +36,6 @@ def _standardize_columns(df: pd.DataFrame) -> pd.DataFrame:
     컬럼 alias 기반 표준화
     CSV 포맷이 조금 달라도 대응
     """
-
     column_aliases = {
         "date": ["날짜", "date", "Date"],
         "time": ["시간", "time", "Time"],
@@ -59,7 +58,6 @@ def _standardize_columns(df: pd.DataFrame) -> pd.DataFrame:
                 found_std_cols.add(std_col)
                 break
 
-    # 최소 필수 컬럼만 강제
     required = {"date", "amount"}
     if not required.issubset(found_std_cols):
         raise ValueError(
@@ -98,6 +96,7 @@ def _clean_types(df: pd.DataFrame) -> pd.DataFrame:
     if "type" in df.columns:
         df["type"] = df["type"].astype(str).str.strip()
     else:
+        # 타입이 없으면 지출로 가정
         df["type"] = "지출"
 
     return df
@@ -109,8 +108,15 @@ def _enrich(df: pd.DataFrame) -> pd.DataFrame:
         lambda x: x.hour if pd.notna(x) else np.nan
     )
 
-    # 지출 여부
+    # ✅ 수입/지출 여부 (type 기반)
+    # raw 데이터는 금액 부호가 일관되지 않을 수 있으므로 반드시 type으로 판정
     df["is_expense"] = df["type"] == "지출"
+    df["is_income"] = df["type"] == "수입"
+    df["is_transfer"] = df["type"] == "이체"
+
+    # ✅ 분석 편의를 위한 절대값 컬럼(선택이지만 추천)
+    df["amount_abs"] = df["amount"].abs()
+
     return df
 
 
