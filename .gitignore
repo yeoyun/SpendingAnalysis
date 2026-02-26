@@ -3,4 +3,5 @@
 /ai_report/__pycache__/
 /expense_preprocess/__pycache__/
 /persona/__pycache__/
+/expense_preprocess/__pycache__/
 .env

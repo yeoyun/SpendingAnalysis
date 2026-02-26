@@ -53,11 +53,21 @@ def render_period_filter(start_date: pd.Timestamp, end_date: pd.Timestamp):
     """
     라디오 없이:
     segmented_control → 없으면 pills → 최후 button 4개
+
+    ✅ date_input 방어:
+    - 단일 날짜가 반환되거나(끝 날짜 미선택)
+    - tuple/list 길이가 2가 아니거나
+    - start/end 중 하나가 None이거나
+    - start > end 인 경우
     """
     _inject_filter_style()
 
     # ✅ 앵커 (이 다음 블록에 카드 CSS가 적용됨)
     st.markdown('<div id="period-filter-anchor"></div>', unsafe_allow_html=True)
+
+    # 기본값(항상 date로)
+    default_start = pd.to_datetime(start_date).date()
+    default_end = pd.to_datetime(end_date).date()
 
     with st.container():
         st.markdown("##### 📅 분석 필터")
@@ -104,19 +114,40 @@ def render_period_filter(start_date: pd.Timestamp, end_date: pd.Timestamp):
                     period_type = st.session_state["period_type"]
 
         with col2:
+            # ✅ 핵심: range 모드라도 단일 date가 돌아올 수 있으니 key를 주고 방어
             selected_range = st.date_input(
                 "날짜 선택",
-                value=(pd.to_datetime(start_date).date(), pd.to_datetime(end_date).date()),
+                value=(default_start, default_end),
                 label_visibility="collapsed",
+                key="period_date_range",
             )
 
-    if isinstance(selected_range, tuple):
-        filter_start, filter_end = selected_range
-    else:
-        filter_start = filter_end = selected_range
+    # =========================
+    # ✅ selected_range 정규화/방어
+    # =========================
+    # 1) 단일 날짜(date / datetime)로 들어온 경우
+    if not isinstance(selected_range, (tuple, list)):
+        st.warning("⚠ 기간은 시작일과 종료일을 모두 선택해 주세요.")
+        st.stop()
+
+    # 2) tuple/list인데 길이가 2가 아닌 경우
+    if len(selected_range) != 2:
+        st.warning("⚠ 기간 선택이 완성되지 않았습니다. 시작일/종료일을 모두 선택해 주세요.")
+        st.stop()
+
+    filter_start, filter_end = selected_range
+
+    # 3) None 방어
+    if filter_start is None or filter_end is None:
+        st.warning("⚠ 기간은 시작일과 종료일을 모두 선택해 주세요.")
+        st.stop()
+
+    # 4) 역전 방어
+    if filter_start > filter_end:
+        st.warning("⚠ 시작일이 종료일보다 클 수 없습니다.")
+        st.stop()
 
     return period_type, pd.to_datetime(filter_start), pd.to_datetime(filter_end)
-
 
 def render_period_header(
     start_date: pd.Timestamp,
