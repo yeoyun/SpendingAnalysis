@@ -75,7 +75,10 @@ init_data_manager_state()
 # =====================
 # ✅ 사이드바 (페이지/기본 기간/카테고리)
 # =====================
-page, start_date, end_date, selected_categories = build_sidebar()
+persona_result = get_persona_result_from_ai_all_session()
+page, start_date, end_date, selected_categories = build_sidebar(
+    persona_result=persona_result
+)
 
 if page == "🧼 데이터 관리":
     render_data_manage_page()
