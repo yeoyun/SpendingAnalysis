@@ -229,6 +229,217 @@ def _compute_budget_recommendation(
     return rows
 
 
+def _compute_short_term_compare(
+    *,
+    df_expense_all: pd.DataFrame,
+    end_ts: pd.Timestamp,
+    window_days: int = 30,
+    baseline_months: int = 3,
+    top_n_categories: int = 3,
+) -> Dict[str, Any]:
+    """
+    ✅ 단기(최근 window_days) 소비를 비교근거로 만들기 위한 요약 블록.
+    - baseline 우선순위:
+      1) 직전 window_days (previous window)
+      2) 최근 baseline_months개 '완전한 월'의 일평균 중앙값(robust)
+      3) 전체 기간 일평균 중앙값(robust)
+    """
+    if df_expense_all is None or len(df_expense_all) == 0:
+        return {"available": False, "reason": "지출 데이터가 없습니다."}
+
+    tmp = df_expense_all.copy()
+    tmp["date"] = _ensure_datetime(tmp["date"])
+    tmp = tmp.dropna(subset=["date"]).copy()
+    tmp["amount_abs"] = _get_amount_abs(tmp)
+
+    # category 없는 경우도 대비
+    if "category_lv1" not in tmp.columns:
+        tmp["category_lv1"] = "기타"
+
+    # 요일/주말
+    tmp["weekday"] = tmp["date"].dt.weekday  # 0=Mon ... 6=Sun
+    tmp["is_weekend"] = tmp["weekday"].isin([5, 6])
+
+    # ---------------------------
+    # 1) Current window (최근 30일)
+    # ---------------------------
+    end_ts = pd.to_datetime(end_ts).normalize()
+    cur_start = end_ts - pd.Timedelta(days=window_days - 1)
+
+    cur = tmp[(tmp["date"] >= cur_start) & (tmp["date"] <= end_ts)].copy()
+    cur_days = int(cur["date"].dt.normalize().nunique()) if len(cur) else 0
+    cur_total = float(cur["amount_abs"].sum()) if len(cur) else 0.0
+
+    cur_weekday_total = float(cur[~cur["is_weekend"]]["amount_abs"].sum()) if len(cur) else 0.0
+    cur_weekend_total = float(cur[cur["is_weekend"]]["amount_abs"].sum()) if len(cur) else 0.0
+
+    # 카테고리 TopN (현재)
+    cur_cat = (
+        cur.groupby("category_lv1")["amount_abs"].sum().sort_values(ascending=False)
+        if len(cur) else pd.Series(dtype=float)
+    )
+    cur_top = cur_cat.head(top_n_categories).to_dict() if len(cur_cat) else {}
+
+    # ---------------------------
+    # 2) Baseline 후보 A: previous window (직전 30일)
+    # ---------------------------
+    prev_end = cur_start - pd.Timedelta(days=1)
+    prev_start = prev_end - pd.Timedelta(days=window_days - 1)
+    prev = tmp[(tmp["date"] >= prev_start) & (tmp["date"] <= prev_end)].copy()
+
+    prev_days = int(prev["date"].dt.normalize().nunique()) if len(prev) else 0
+    prev_total = float(prev["amount_abs"].sum()) if len(prev) else 0.0
+
+    prev_weekday_total = float(prev[~prev["is_weekend"]]["amount_abs"].sum()) if len(prev) else 0.0
+    prev_weekend_total = float(prev[prev["is_weekend"]]["amount_abs"].sum()) if len(prev) else 0.0
+
+    prev_cat = (
+        prev.groupby("category_lv1")["amount_abs"].sum().sort_values(ascending=False)
+        if len(prev) else pd.Series(dtype=float)
+    )
+
+    # previous window가 “충분히” 있는지 (너무 적으면 비교 왜곡)
+    prev_ok = prev_days >= max(10, window_days // 3)  # 최소 10일(또는 1/3)
+
+    # ---------------------------
+    # 3) Baseline 후보 B: 최근 '완전한 월'의 일평균 중앙값
+    # ---------------------------
+    # end_ts가 속한 월은 "부분월"일 가능성이 높으니 baseline에서 제외
+    tmp["month"] = _month_key(tmp["date"])  # 이미 features.py에 있는 헬퍼 사용
+    end_month = _month_key(pd.Series([end_ts]))[0]
+
+    months_sorted = sorted([m for m in tmp["month"].dropna().unique().tolist() if isinstance(m, str)])
+    # end_month 이전의 월만 사용
+    full_months = [m for m in months_sorted if m < end_month]
+    use_months = full_months[-baseline_months:] if len(full_months) else []
+
+    month_daily_avgs = []
+    month_totals = {}
+    for m in use_months:
+        m_df = tmp[tmp["month"] == m]
+        if len(m_df) == 0:
+            continue
+        # 해당 월 '실제 데이터 존재 일수'로 나눠서 일평균 (누락 월 방어)
+        days = int(m_df["date"].dt.normalize().nunique())
+        if days <= 0:
+            continue
+        total = float(m_df["amount_abs"].sum())
+        month_totals[m] = total
+        month_daily_avgs.append(total / days)
+
+    month_ok = len(month_daily_avgs) >= 2  # 최소 2개월은 있어야 안정적
+    month_daily_median = float(np.median(month_daily_avgs)) if month_ok else None
+    month_baseline_total_for_window = (month_daily_median * window_days) if month_daily_median is not None else None
+
+    # ---------------------------
+    # 4) Baseline 후보 C: 전체기간 일평균 중앙값
+    # ---------------------------
+    tmp["day"] = tmp["date"].dt.normalize()
+    daily_total = tmp.groupby("day")["amount_abs"].sum()
+    overall_ok = len(daily_total) >= 14
+    overall_daily_median = float(np.median(daily_total.values)) if overall_ok else None
+    overall_baseline_total_for_window = (overall_daily_median * window_days) if overall_daily_median is not None else None
+
+    # ---------------------------
+    # 5) Baseline 선택 (adaptive)
+    # ---------------------------
+    baseline_used = None
+    baseline_total = None
+    baseline_meta: Dict[str, Any] = {}
+
+    if prev_ok:
+        baseline_used = "previous_window"
+        baseline_total = prev_total
+        baseline_meta = {
+            "prev_start": str(prev_start.date()),
+            "prev_end": str(prev_end.date()),
+            "prev_days_with_data": int(prev_days),
+        }
+    elif month_ok:
+        baseline_used = "recent_full_months_daily_median"
+        baseline_total = float(month_baseline_total_for_window)
+        baseline_meta = {
+            "months_used": use_months,
+            "months_total": month_totals,
+            "daily_median": float(month_daily_median),
+            "note": "부분월/누락월 왜곡을 줄이기 위해 '월합계'가 아닌 '월 일평균 중앙값'을 사용",
+        }
+    elif overall_ok:
+        baseline_used = "overall_daily_median"
+        baseline_total = float(overall_baseline_total_for_window)
+        baseline_meta = {
+            "days_used": int(len(daily_total)),
+            "daily_median": float(overall_daily_median),
+        }
+    else:
+        return {"available": False, "reason": "비교 기준을 만들 데이터가 부족합니다."}
+
+    # 증감
+    diff = float(cur_total - baseline_total) if baseline_total is not None else None
+    pct = None if (baseline_total in (None, 0.0)) else float(diff / baseline_total)
+
+    # weekday/weekend 변화(가능할 때만)
+    weekday_diff = weekend_diff = None
+    if baseline_used == "previous_window":
+        weekday_diff = float(cur_weekday_total - prev_weekday_total)
+        weekend_diff = float(cur_weekend_total - prev_weekend_total)
+
+    # 카테고리 변화 (baseline이 previous window이면 카테고리 delta가 제일 신뢰도 높음)
+    cat_deltas = []
+    for cat, cur_amt in cur_top.items():
+        base_amt = None
+        if baseline_used == "previous_window":
+            base_amt = float(prev_cat.get(cat, 0.0))
+        elif baseline_used in ("recent_full_months_daily_median", "overall_daily_median"):
+            # 일평균 기반 baseline에서는 카테고리별 baseline을 “안전하게” 생략(오류 방지)
+            base_amt = None
+
+        cat_deltas.append({
+            "category_lv1": cat,
+            "current": float(cur_amt),
+            "baseline": base_amt,
+            "diff": (float(cur_amt - base_amt) if base_amt is not None else None),
+            "pct": (None if (base_amt in (None, 0.0)) else float((cur_amt - base_amt) / base_amt)),
+            "baseline_reliable": (baseline_used == "previous_window"),
+        })
+
+    # 신뢰도(대략)
+    confidence = "High" if baseline_used == "previous_window" else ("Medium" if baseline_used == "recent_full_months_daily_median" else "Low")
+
+    return {
+        "available": True,
+        "window": {
+            "days": int(window_days),
+            "start": str(cur_start.date()),
+            "end": str(end_ts.date()),
+            "days_with_data": int(cur_days),
+        },
+        "current": {
+            "total": float(cur_total),
+            "weekday_total": float(cur_weekday_total),
+            "weekend_total": float(cur_weekend_total),
+            "top_categories": cur_top,
+        },
+        "baseline": {
+            "used": baseline_used,
+            "total_for_window": float(baseline_total),
+            "meta": baseline_meta,
+            "confidence": confidence,
+        },
+        "change": {
+            "diff": diff,
+            "pct": pct,
+            "weekday_diff": weekday_diff,
+            "weekend_diff": weekend_diff,
+        },
+        "category_deltas_top": cat_deltas,
+        "notes": [
+            "단기 비교는 평균보다 중앙값/직전기간 비교를 우선해 왜곡을 줄입니다.",
+            "카테고리별 baseline은 직전기간 비교일 때만 신뢰도 높게 제공합니다.",
+        ],
+    }
+
+
 def build_ai_summary(
     df_all: pd.DataFrame,
     df_expense_filtered: pd.DataFrame,
@@ -367,7 +578,22 @@ def build_ai_summary(
             fixed_cost_est_monthly=fixed_cost_est_monthly,
             top_n_categories=8,
         )
+        
+    # -----------------------
+    # ✅ short_term_compare (단기 리포트 근거용)
+    # -----------------------
+    # 전체 지출 데이터(히스토리)에서 baseline을 만들기 위해 work_period가 아닌 work 전체에서 expense만 사용
+    df_expense_all = work[work["is_expense"] == True].copy()
+    df_expense_all["amount_abs"] = _get_amount_abs(df_expense_all)
 
+    short_term_compare = _compute_short_term_compare(
+        df_expense_all=df_expense_all,
+        end_ts=end_ts,
+        window_days=30,
+        baseline_months=3,
+        top_n_categories=3,
+    )
+    
     return {
         "period": {"start": str(start_ts.date()), "end": str(end_ts.date())},
 
@@ -427,5 +653,6 @@ def build_ai_summary(
             "late_hour_start": int(params.late_hour_start),
             "easy_pay_regex": _normalize_regex_pattern(params.easy_pay_regex),
             "budget_target_ratio": float(params.budget_target_ratio),
-        }
+        },
+        "short_term_compare": short_term_compare,
     }

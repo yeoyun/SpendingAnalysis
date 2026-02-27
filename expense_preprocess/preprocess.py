@@ -29,7 +29,7 @@ def run_preprocess(file, warn_fn: Optional[WarnFn] = None) -> pd.DataFrame:
     df = _load(file, _warn)
     df = _standardize_columns(df, _warn)
     df = _clean_types(df, _warn)
-    df = _enrich(df)
+    df = _enrich(df)         # ✅ spend_amount / income_amount / transfer_amount 생성
     df = _normalize(df)
     return df
 
@@ -38,11 +38,20 @@ def run_preprocess(file, warn_fn: Optional[WarnFn] = None) -> pd.DataFrame:
 # Internal Functions
 # =========================
 def _load(file, warn_fn: WarnFn) -> pd.DataFrame:
+    """
+    - file이 DataFrame이면 그대로 반환
+    - 업로드 파일이면 CSV / XLSX 로드
+    """
+
+    # ✅ 1️⃣ 이미 DataFrame이면 그대로 사용
+    if isinstance(file, pd.DataFrame):
+        return file.copy()
+
     name = getattr(file, "name", "") or ""
     lower = name.lower()
 
+    # ✅ 2️⃣ CSV
     if lower.endswith(".csv"):
-        # ✅ BOM(utf-8-sig) 대응 + 한글(cp949) 재시도 + 구분자 자동추정
         try:
             file.seek(0)
             return pd.read_csv(file, encoding="utf-8-sig", sep=None, engine="python")
@@ -51,10 +60,12 @@ def _load(file, warn_fn: WarnFn) -> pd.DataFrame:
             file.seek(0)
             return pd.read_csv(file, encoding="cp949", sep=None, engine="python")
 
+    # ✅ 3️⃣ Excel
     if lower.endswith(".xlsx"):
         file.seek(0)
-        return pd.read_excel(file)  # openpyxl 필요
+        return pd.read_excel(file)
 
+    # ❌ 그 외
     raise ValueError("CSV 또는 Excel(.xlsx) 파일만 업로드 가능합니다.")
 
 
@@ -102,10 +113,18 @@ def _standardize_columns(df: pd.DataFrame, warn_fn: WarnFn) -> pd.DataFrame:
 
     df = df.rename(columns=rename_map)
 
-    # ✅ 옵션 A: category_lv1 없으면 '기타' 생성 (차트가 죽지 않도록)
+    # ✅ category_lv1 없으면 '기타' 생성 (차트가 죽지 않도록)
     if "category_lv1" not in df.columns:
         warn_fn("category 컬럼이 없어 category_lv1을 '기타'로 생성합니다.")
         df["category_lv1"] = "기타"
+
+    # 옵션 컬럼 방어
+    if "description" not in df.columns:
+        df["description"] = ""
+    if "category_lv2" not in df.columns:
+        df["category_lv2"] = ""
+    if "payment_method" not in df.columns:
+        df["payment_method"] = ""
 
     return df
 
@@ -129,21 +148,13 @@ def _clean_types(df: pd.DataFrame, warn_fn: WarnFn) -> pd.DataFrame:
     if "time" in df.columns:
         t = df["time"]
         t_str = t.astype(str).where(t.notna(), other=None)
-        # 시간 포맷 명시 (HH:MM 또는 HH:MM:SS 대응)
-        parsed = pd.to_datetime(
-            t_str,
-            format="%H:%M",
-            errors="coerce"
-        )
+
+        parsed = pd.to_datetime(t_str, format="%H:%M", errors="coerce")
 
         # HH:MM:SS 형태 재시도
         mask = parsed.isna()
         if mask.any():
-            parsed2 = pd.to_datetime(
-                t_str[mask],
-                format="%H:%M:%S",
-                errors="coerce"
-            )
+            parsed2 = pd.to_datetime(t_str[mask], format="%H:%M:%S", errors="coerce")
             parsed.loc[mask] = parsed2
 
         df["time"] = parsed.dt.time
@@ -176,13 +187,46 @@ def _clean_types(df: pd.DataFrame, warn_fn: WarnFn) -> pd.DataFrame:
         raise ValueError("유효한 amount가 없어 데이터가 비었습니다. amount 형식을 확인해주세요.")
 
     # -------------------------
-    # type: 없으면 지출로 가정
+    # ✅ type: 지출/수입/이체로 표준화 (핵심)
+    # - 기존처럼 빈값 => 지출 로 박으면 수입/이체가 지출로 섞여 KPI/누적 폭증
+    # - type / description / category 텍스트 + amount 부호로 안전하게 추정
     # -------------------------
     if "type" in df.columns:
-        df["type"] = df["type"].astype(str).str.strip()
-        df.loc[df["type"] == "", "type"] = "지출"
+        raw_type = df["type"].astype(str).str.strip().replace({"nan": "", "None": ""})
     else:
-        df["type"] = "지출"
+        raw_type = pd.Series([""] * len(df), index=df.index)
+
+    desc = df["description"].astype(str).fillna("")
+    cat1 = df["category_lv1"].astype(str).fillna("")
+    cat2 = df["category_lv2"].astype(str).fillna("")
+    pay = df["payment_method"].astype(str).fillna("")
+
+    # 텍스트 합쳐서 탐지(이체는 description에도 많이 숨어있음)
+    text = (raw_type + " " + desc + " " + cat1 + " " + cat2 + " " + pay).astype(str)
+
+    # 우선순위: 이체 > 수입 > 지출
+    transfer_kw = r"(이체|송금|계좌이체|내계좌|transfer|remit)"
+    income_kw = r"(수입|입금|급여|월급|환급|정산|보너스|상여|이자|배당|캐시백)"
+    expense_kw = r"(지출|출금|결제|사용|승인|구매|납부|자동이체)"
+
+    is_transfer = text.str.contains(transfer_kw, case=False, na=False)
+    is_income = text.str.contains(income_kw, case=False, na=False)
+    is_expense = text.str.contains(expense_kw, case=False, na=False)
+
+    df["type"] = ""
+    df.loc[is_transfer, "type"] = "이체"
+    df.loc[~is_transfer & is_income, "type"] = "수입"
+    df.loc[~is_transfer & ~is_income & is_expense, "type"] = "지출"
+
+    # 남은 애매 케이스는 amount 부호로 추정
+    remain = df["type"].astype(str).str.strip() == ""
+    if remain.any():
+        amt = pd.to_numeric(df.loc[remain, "amount"], errors="coerce").fillna(0.0)
+        df.loc[remain & (amt < 0), "type"] = "지출"
+        df.loc[remain & (amt >= 0), "type"] = "수입"
+
+    # 최종 방어 (그래도 비면 소비 중심으로 지출 처리)
+    df.loc[df["type"].astype(str).str.strip() == "", "type"] = "지출"
 
     # category_lv1: 결측/빈값 방어
     df["category_lv1"] = df["category_lv1"].astype(str)
@@ -195,13 +239,18 @@ def _enrich(df: pd.DataFrame) -> pd.DataFrame:
     # 시간 파생
     df["hour"] = df["time"].apply(lambda x: x.hour if pd.notna(x) else np.nan)
 
-    # ✅ 수입/지출 여부 (type 기반)
+    # ✅ 수입/지출/이체 여부 (type 기반)
     df["is_expense"] = df["type"] == "지출"
     df["is_income"] = df["type"] == "수입"
     df["is_transfer"] = df["type"] == "이체"
 
-    # ✅ 분석 편의 절대값
-    df["amount_abs"] = df["amount"].abs()
+    # ✅ 공통 절댓값
+    df["amount_abs"] = pd.to_numeric(df["amount"], errors="coerce").fillna(0.0).abs()
+
+    # ✅ 집계 전용 컬럼 (여기만 합산하면 수입이 절대 섞일 수 없음)
+    df["spend_amount"] = np.where(df["is_expense"], df["amount_abs"], 0.0)      # 소비(지출)만
+    df["income_amount"] = np.where(df["is_income"], df["amount_abs"], 0.0)      # 수입만
+    df["transfer_amount"] = np.where(df["is_transfer"], df["amount_abs"], 0.0)  # 이체만
 
     return df
 
@@ -219,7 +268,7 @@ def _anonymize_description(row) -> str:
 
     desc = str(desc)
 
-    # 이체: 이름 제거 (오탐/누락 가능 → 3주차에서 옵션화 권장)
+    # 이체: 이름 제거
     if row.get("type") == "이체":
         desc = re.sub(r"(토스\s*)?[가-힣]{2,4}", "", desc).strip()
         return desc if desc else row.get("category_lv1", "이체")

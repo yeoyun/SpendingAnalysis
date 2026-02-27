@@ -1,7 +1,9 @@
 /data/
-/app/__pycache__/
-/ai_report/__pycache__/
-/expense_preprocess/__pycache__/
-/persona/__pycache__/
-/expense_preprocess/__pycache__/
+/ai_cache/
+
 .env
+
+*.parquet
+*.csv
+*.pyc
+*.json
