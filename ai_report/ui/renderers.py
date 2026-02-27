@@ -232,7 +232,7 @@ def render_ai_report_structured(*, show_json_toggle: bool = False) -> None:
     st.subheader("🧾 요약 3줄")
     if three_rows:
         df_three = pd.DataFrame(three_rows)
-        st.dataframe(df_three, use_container_width=True, hide_index=True)
+        st.dataframe(df_three, width="stretch", hide_index=True)
     else:
         st.info("요약 3줄 데이터가 없습니다.")
 
@@ -247,7 +247,7 @@ def render_ai_report_structured(*, show_json_toggle: bool = False) -> None:
             "Evidence": a.get("evidence", ""),
             "Recommendation": a.get("recommendation", ""),
         } for a in alerts[:8]])
-        st.dataframe(df_alerts, use_container_width=True, hide_index=True)
+        st.dataframe(df_alerts, width="stretch", hide_index=True)
     else:
         st.caption("알림 항목이 없습니다.")
 
@@ -276,7 +276,7 @@ def render_ai_report_structured(*, show_json_toggle: bool = False) -> None:
             "Why": p.get("why", ""),
             "Metric": p.get("metric", ""),
         } for p in plan[:10]])
-        st.dataframe(df_plan, use_container_width=True, hide_index=True)
+        st.dataframe(df_plan, width="stretch", hide_index=True)
     else:
         st.caption("액션 플랜이 없습니다.")
 

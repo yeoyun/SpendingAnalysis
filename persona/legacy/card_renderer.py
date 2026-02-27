@@ -177,7 +177,7 @@ def render_persona_top_card(result: Optional[PersonaResult]) -> None:
     # 6) 상세보기 (기존 금융비서 리포트)
     col1, col2 = st.columns([1, 5])
     with col1:
-        if st.button("상세보기", use_container_width=True, key="btn_ai_detail_toggle"):
+        if st.button("상세보기", width="stretch", key="btn_ai_detail_toggle"):
             st.session_state["ai_detail_open"] = not st.session_state.get("ai_detail_open", False)
             st.rerun()
 

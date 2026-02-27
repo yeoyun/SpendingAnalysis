@@ -56,7 +56,7 @@ def render_test_data_generator(
     st.caption("테스트 데이터는 활성 데이터에 반영되지 않으며 CSV로만 내보낼 수 있습니다.")
 
     # ── 생성 버튼 ──────────────────────────────
-    if st.button("테스트 데이터 생성", use_container_width=True, key="dm_test_preview_btn"):
+    if st.button("테스트 데이터 생성", width="stretch", key="dm_test_preview_btn"):
         try:
             if pd.Timestamp(end_date) < pd.Timestamp(start_date):
                 st.error("종료일은 시작일보다 빠를 수 없습니다.")
@@ -73,7 +73,7 @@ def render_test_data_generator(
                     )
                 st.session_state[TEST_CACHE_KEY] = df_test
                 st.success(f"생성 완료 — {df_test.shape[0]:,}개 행")
-                st.dataframe(df_test.head(50), use_container_width=True)
+                st.dataframe(df_test.head(50), width="stretch")
         except Exception as e:
             st.error("테스트 데이터 생성 실패")
             st.exception(e)
@@ -88,6 +88,6 @@ def render_test_data_generator(
             data=csv_bytes,
             file_name=fname,
             mime="text/csv",
-            use_container_width=True,
+            width="stretch",
             key="dm_test_download_btn",
         )

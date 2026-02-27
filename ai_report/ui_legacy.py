@@ -256,14 +256,14 @@ def render_ai_sidebar_controls(
     # -------------------------
     c1, c2 = st.sidebar.columns(2)
     with c1:
-        run_all = st.button("📊 전체 생성", key="sb_run_all", use_container_width=True)
+        run_all = st.button("📊 전체 생성", key="sb_run_all", width="stretch")
     with c2:
-        run_short = st.button("🗓️ 단기 생성", key="sb_run_short", use_container_width=True)
+        run_short = st.button("🗓️ 단기 생성", key="sb_run_short", width="stretch")
 
     # -------------------------
     # 초기화 버튼(전체/단기/레거시 모두 같이 지움)
     # -------------------------
-    clear = st.sidebar.button("🧹 리포트 초기화", key="sb_clear_reports", use_container_width=True)
+    clear = st.sidebar.button("🧹 리포트 초기화", key="sb_clear_reports", width="stretch")
 
     if clear:
         st.session_state["ai_report_result"] = None
@@ -607,7 +607,7 @@ def render_ai_report_structured(*, show_json_toggle: bool = False) -> None:
     st.subheader("🧾 요약 3줄")
     if three_rows:
         df_three = pd.DataFrame(three_rows)
-        st.dataframe(df_three, use_container_width=True, hide_index=True)
+        st.dataframe(df_three, width="stretch", hide_index=True)
     else:
         st.info("요약 3줄 데이터가 없습니다.")
 
@@ -622,7 +622,7 @@ def render_ai_report_structured(*, show_json_toggle: bool = False) -> None:
             "Evidence": a.get("evidence", ""),
             "Recommendation": a.get("recommendation", ""),
         } for a in alerts[:8]])
-        st.dataframe(df_alerts, use_container_width=True, hide_index=True)
+        st.dataframe(df_alerts, width="stretch", hide_index=True)
     else:
         st.caption("알림 항목이 없습니다.")
 
@@ -651,7 +651,7 @@ def render_ai_report_structured(*, show_json_toggle: bool = False) -> None:
             "Why": p.get("why", ""),
             "Metric": p.get("metric", ""),
         } for p in plan[:10]])
-        st.dataframe(df_plan, use_container_width=True, hide_index=True)
+        st.dataframe(df_plan, width="stretch", hide_index=True)
     else:
         st.caption("액션 플랜이 없습니다.")
 

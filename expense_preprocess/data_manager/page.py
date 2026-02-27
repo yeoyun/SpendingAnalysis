@@ -316,7 +316,7 @@ def render_data_manage_page() -> None:
             label_visibility="collapsed",
         )
     with colB:
-        if st.button("🗑️ 삭제", use_container_width=True, key="dm_delete_btn"):
+        if st.button("🗑️ 삭제", width="stretch", key="dm_delete_btn"):
             delete_file(selected)
             st.rerun()
 
@@ -357,7 +357,7 @@ def render_data_manage_page() -> None:
         st.markdown("### 데이터 미리보기")
 
         with st.expander("상위 50행 보기"):
-            st.dataframe(df_active.head(50), use_container_width=True)
+            st.dataframe(df_active.head(50), width="stretch")
 
         # ── 전체 삭제 + 내보내기 ─────────────────
         st.markdown('<hr class="dm-divider">', unsafe_allow_html=True)
@@ -366,7 +366,7 @@ def render_data_manage_page() -> None:
         col_del, col_exp = st.columns(2)
 
         with col_del:
-            if st.button("🗑️ 전체 데이터 삭제", use_container_width=True, key="dm_clear_all"):
+            if st.button("🗑️ 전체 데이터 삭제", width="stretch", key="dm_clear_all"):
                 clear_all()
                 st.rerun()
                 return
@@ -402,7 +402,7 @@ def render_data_manage_page() -> None:
                 data=csv_bytes,
                 file_name=export_name,
                 mime="text/csv",
-                use_container_width=True,
+                width="stretch",
                 key="dm_export_active_csv",
             )
 

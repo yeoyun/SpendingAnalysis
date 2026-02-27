@@ -98,9 +98,9 @@ def render_ai_sidebar_controls(
     # ── 생성 버튼 ────────────────────────────────────────────
     c1, c2 = st.sidebar.columns(2)
     with c1:
-        run_all   = st.button("📊 전체 생성",  key="sb_run_all",   use_container_width=True)
+        run_all   = st.button("📊 전체 생성",  key="sb_run_all",   width="stretch")
     with c2:
-        run_short = st.button("🗓️ 단기 생성", key="sb_run_short", use_container_width=True)
+        run_short = st.button("🗓️ 단기 생성", key="sb_run_short", width="stretch")
 
     st.sidebar.markdown("")
 
@@ -121,14 +121,14 @@ def render_ai_sidebar_controls(
             file_name=build_md_filename(),
             mime="text/markdown",
             key="sb_export_md",
-            use_container_width=True,
+            width="stretch",
             help="전체/단기 리포트 + 페르소나를 Markdown 파일로 저장합니다.",
         )
     else:
         st.sidebar.button(
             "📄 MD 리포트 내보내기",
             key="sb_export_md_disabled",
-            use_container_width=True,
+            width="stretch",
             disabled=True,
             help="리포트를 먼저 생성해야 내보낼 수 있습니다.",
         )
@@ -137,7 +137,7 @@ def render_ai_sidebar_controls(
     clear = st.sidebar.button(
         "🧹 리포트 초기화",
         key="sb_clear_reports",
-        use_container_width=True,
+        width="stretch",
     )
 
     if clear:
