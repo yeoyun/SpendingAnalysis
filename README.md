@@ -163,6 +163,8 @@ SpendingAnalysis/
 
 ## 예시 실행 화면
 
+https://github.com/user-attachments/assets/01503c09-12e3-4cb6-afc3-e87cf953c10f
+
 
 ---
 
