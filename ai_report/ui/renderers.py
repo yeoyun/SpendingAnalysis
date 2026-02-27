@@ -167,6 +167,9 @@ def render_ai_report_detail_all(*, compact: bool = False) -> None:
         compact=compact,
         key_prefix="ai_all",
     )
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.divider()
+    st.markdown("<br>", unsafe_allow_html=True)
 
 
 # =========================
