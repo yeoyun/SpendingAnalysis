@@ -439,24 +439,37 @@ def draw_monthly_daily_cumulative_compare(
 # =====================
 def draw_category_pie(df: pd.DataFrame):
     df = _ensure_datetime(df).copy()
-    df["_spend"] = _get_spend_series(df)  # ✅ 소비만
+    df["_spend"] = _get_spend_series(df)  # ✅ 소비(지출)만, 양수
 
     pie_df = (
-        df.groupby("category_lv1")["_spend"]
+        df.groupby("category_lv1", dropna=True)["_spend"]
         .sum()
-        .reindex(CONSUMPTION_CATEGORIES_12, fill_value=0.0)
         .reset_index()
         .rename(columns={"_spend": "amount"})
     )
 
-    total = float(pie_df["amount"].sum())
-    pie_df["ratio"] = pie_df["amount"] / total if total != 0 else 0
+    # ✅ 0원(또는 음수/결측) 카테고리 제거 → 그래프/범례에서 완전 제거
+    pie_df["amount"] = pd.to_numeric(pie_df["amount"], errors="coerce").fillna(0.0)
+    pie_df = pie_df[pie_df["amount"] > 0].copy()
 
+    # 방어: 다 제거되면 빈 figure 반환
+    if pie_df.empty:
+        fig = go.Figure()
+        fig.update_layout(
+            height=380,
+            margin=dict(l=10, r=10, t=10, b=10),
+            annotations=[dict(text="표시할 카테고리가 없습니다.", x=0.5, y=0.5, showarrow=False)],
+        )
+        return fig
+
+    # 보기 좋게: 큰 금액 순
     pie_df = pie_df.sort_values("amount", ascending=False).reset_index(drop=True)
 
-    colors = []
-    for i, t in enumerate(np.linspace(0, 1, len(pie_df))):
-        colors.append(PRIMARY_COLOR if i == 0 else gray_gradient(t))
+    # 색: 1등은 PRIMARY, 나머지는 회색 그라데이션
+    colors = [PRIMARY_COLOR]
+    if len(pie_df) > 1:
+        for t in np.linspace(0.15, 1.0, len(pie_df) - 1):
+            colors.append(gray_gradient(float(t)))
 
     fig = go.Figure(
         data=[
@@ -471,6 +484,7 @@ def draw_category_pie(df: pd.DataFrame):
             )
         ]
     )
+    fig.update_layout(height=380, margin=dict(l=10, r=10, t=10, b=10))
     return fig
 
 # =====================
@@ -481,17 +495,29 @@ def draw_category_pie(df: pd.DataFrame):
 
 def draw_category_bar(df: pd.DataFrame):
     df = _ensure_datetime(df).copy()
-    df["_spend"] = _get_spend_series(df)  # ✅ 소비만
+    df["_spend"] = _get_spend_series(df)  # ✅ 소비(지출)만, 양수
 
     bar_df = (
-        df.groupby("category_lv1")["_spend"]
+        df.groupby("category_lv1", dropna=True)["_spend"]
         .sum()
-        .reindex(CONSUMPTION_CATEGORIES_12, fill_value=0.0)
         .reset_index()
         .rename(columns={"_spend": "amount"})
     )
 
-    # 보기 좋게: 금액 큰 순으로 정렬
+    # ✅ 0원 카테고리 제거 → 막대/축/범례에서 제거
+    bar_df["amount"] = pd.to_numeric(bar_df["amount"], errors="coerce").fillna(0.0)
+    bar_df = bar_df[bar_df["amount"] > 0].copy()
+
+    if bar_df.empty:
+        fig = go.Figure()
+        fig.update_layout(
+            height=380,
+            margin=dict(l=10, r=10, t=10, b=10),
+            annotations=[dict(text="표시할 카테고리가 없습니다.", x=0.5, y=0.5, showarrow=False)],
+        )
+        return fig
+
+    # 보기 좋게: 금액 큰 순
     bar_df = bar_df.sort_values("amount", ascending=False).reset_index(drop=True)
     bar_df["label_manwon"] = bar_df["amount"].apply(_format_manwon_1)
 
@@ -507,7 +533,6 @@ def draw_category_bar(df: pd.DataFrame):
         textposition="outside",
         hovertemplate="카테고리: %{x}<br>지출: %{y:,.0f}원<extra></extra>",
     )
-
     fig.update_layout(
         xaxis_title="카테고리",
         yaxis_title="지출 금액 (원)",
@@ -1211,7 +1236,7 @@ def draw_hour_compare(
         df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df["ym"]    = df["date"].dt.to_period("M")
     df["hour"]  = df.get("hour", df["date"].dt.hour)
-    df["spend"] = pd.to_numeric(df["amount"], errors="coerce").fillna(0).abs()
+    df["spend"] = _get_spend_series(df)
 
     def _hour_avg(period: pd.Period) -> np.ndarray:
         """시간별 '날짜 × 시간 조합' 기준 평균 지출"""
@@ -1396,7 +1421,7 @@ def build_peak_pattern(
     if df2.empty:
         return empty
 
-    df2["spend"]   = pd.to_numeric(df2["amount"], errors="coerce").fillna(0).abs()
+    df2["spend"] = _get_spend_series(df2)
     df2["weekday"] = df2["date"].dt.day_name().map(WEEKDAY_KO)
     df2["hour"]    = df2["hour"] if "hour" in df2.columns else df2["date"].dt.hour
 

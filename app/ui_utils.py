@@ -154,6 +154,8 @@ def render_period_filter(start_date: pd.Timestamp, end_date: pd.Timestamp):
 
     return period_type, pd.to_datetime(filter_start), pd.to_datetime(filter_end)
 
+
+
 def render_period_header(
     start_date: pd.Timestamp,
     end_date: pd.Timestamp,
