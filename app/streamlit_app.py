@@ -7,6 +7,8 @@ import pandas as pd
 import calendar
 import streamlit.components.v1 as components
 
+api_key = os.environ.get("GEMINI_API_KEY")
+
 # =====================
 # 경로 설정 (가장 먼저)
 # =====================
